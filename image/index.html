@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>ImageMagick WASM 本地工作台</title>
+    <style>
+        :root { --accent: #8b5cf6; --bg: #0f172a; --card: #1e293b; --success: #10b981; --border: #334151; --primary: #6366f1; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #f1f5f9; padding: 0; margin: 0; }
+
+        .navbar { background: #111827; padding: 12px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+        .nav-links { display: flex; gap: 20px; }
+        .nav-links a { color: #94a3b8; text-decoration: none; font-size: 0.85rem; transition: 0.2s; }
+        .nav-links a:hover { color: var(--accent); }
+
+        .container { max-width: 850px; margin: 30px auto; padding: 0 20px; }
+        .card { background: var(--card); padding: 30px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; }
+        #file-name-label { font-weight: 600; color: var(--accent); background: #1a2233; padding: 6px 15px; border-radius: 20px; border: 1px solid var(--border); font-size: 0.85rem; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        #drop-zone { border: 2px dashed #475569; border-radius: 12px; padding: 50px; text-align: center; background: #0f172a; cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
+        #drop-zone:hover { border-color: var(--accent); background: #1a2233; }
+        #drop-zone.ready { border-color: var(--success); background: #13261f; }
+
+        .controls { display: flex; align-items: flex-end; gap: 15px; margin-bottom: 15px; min-height: 40px; flex-wrap: wrap; }
+        .control-field { display: flex; flex-direction: column; gap: 6px; }
+        .control-field label { font-size: 0.85rem; color: #94a3b8; }
+        .control-field select,
+        .control-field input {
+            min-width: 110px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: #0f172a;
+            color: #f1f5f9;
+            border: 1px solid #334151;
+            outline: none;
+        }
+        .control-field input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary,
+        .btn-download {
+            border: none;
+            padding: 10px 22px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: #4f46e5; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-download { display: none; background: var(--success); color: white; }
+        .btn-download:hover { background: #059669; }
+
+        #preview { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); display: none; margin-top: 10px; }
+        #status-msg { font-size: 0.85rem; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="navbar">
+    <div style="font-weight: bold; color: var(--accent);">MagickWasm Local Studio</div>
+    <div class="nav-links">
+        <a href="https://github.com/dlemstra/magick-wasm" target="_blank">GitHub</a>
+        <a href="https://www.google.com" target="_blank">Google</a>
+        <a href="#" onclick="location.reload()">刷新页面</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <span id="file-name-label">未选择文件</span>
+            <div id="status-msg" style="color: #94a3b8;">正在初始化引擎...</div>
+        </div>
+
+        <div id="drop-zone">
+            <div id="drop-title" style="font-size: 1.1rem; font-weight: 500;">点击或拖拽图片到此处</div>
+            <div id="drop-subtitle" style="font-size: 0.85rem; color: #64748b; margin-top: 8px;">先选择参数，再点击“开始转换”</div>
+        </div>
+
+        <input type="file" id="file-input" accept="image/*" style="display: none">
+
+        <div class="controls">
+            <div class="control-field">
+                <label for="format-select">输出格式</label>
+                <select id="format-select">
+                    <option value="webp" selected>WebP</option>
+                    <option value="jpeg">JPEG</option>
+                    <option value="png">PNG</option>
+                </select>
+            </div>
+
+            <div class="control-field">
+                <label for="scale-input">缩放比例 (%)</label>
+                <input id="scale-input" type="number" min="1" max="1000" value="100">
+            </div>
+
+            <div class="control-field">
+                <label for="quality-input">质量 (1-100)</label>
+                <input id="quality-input" type="number" min="1" max="100" value="85">
+            </div>
+
+            <button id="convert-btn" class="btn-primary" disabled>⚡ 开始转换</button>
+            <button id="download-btn" class="btn-download">💾 下载转换后的图片</button>
+            <span id="result-info" style="font-size: 0.85rem; color: #94a3b8;"></span>
+        </div>
+
+        <img id="preview" alt="转换预览">
+    </div>
+</div>
+
+<script type="module">
+    import { initializeImageMagick, ImageMagick, MagickFormat } from './magick.js';
+
+    const statusMsg = document.getElementById('status-msg');
+    const nameLabel = document.getElementById('file-name-label');
+    const fileInput = document.getElementById('file-input');
+    const dropZone = document.getElementById('drop-zone');
+    const dropTitle = document.getElementById('drop-title');
+    const dropSubtitle = document.getElementById('drop-subtitle');
+    const convertBtn = document.getElementById('convert-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const preview = document.getElementById('preview');
+    const resultInfo = document.getElementById('result-info');
+    const formatSelect = document.getElementById('format-select');
+    const scaleInput = document.getElementById('scale-input');
+    const qualityInput = document.getElementById('quality-input');
+
+    let isReady = false;
+    let selectedFile = null;
+    let processedBlob = null;
+    let processedExt = 'webp';
+
+    function getFormatInfo() {
+        const value = formatSelect.value.toLowerCase();
+        if (value === 'png') {
+            return { format: MagickFormat.Png, mime: 'image/png', ext: 'png' };
+        }
+        if (value === 'jpeg' || value === 'jpg') {
+            return { format: MagickFormat.Jpeg, mime: 'image/jpeg', ext: 'jpg' };
+        }
+        return { format: MagickFormat.Webp, mime: 'image/webp', ext: 'webp' };
+    }
+
+    function clamp(value, min, max, fallback) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(max, Math.max(min, n));
+    }
+
+    function updateQualityState() {
+        const isPng = formatSelect.value.toLowerCase() === 'png';
+        qualityInput.disabled = isPng;
+    }
+
+    function updateConvertState() {
+        convertBtn.disabled = !(isReady && selectedFile);
+    }
+
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) return '-';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+
+    function formatCompressionRatio(originalBytes, outputBytes) {
+        if (!Number.isFinite(originalBytes) || originalBytes <= 0 || !Number.isFinite(outputBytes) || outputBytes < 0) {
+            return '-';
+        }
+
+        const savedRatio = (1 - (outputBytes / originalBytes)) * 100;
+        if (savedRatio >= 0) {
+            return `减少 ${savedRatio.toFixed(1)}%`;
+        }
+        return `增大 ${Math.abs(savedRatio).toFixed(1)}%`;
+    }
+
+    function setSelectedFile(file) {
+        selectedFile = file || null;
+        processedBlob = null;
+        downloadBtn.style.display = 'none';
+        preview.style.display = 'none';
+        resultInfo.innerText = '';
+
+        if (selectedFile) {
+            nameLabel.innerText = selectedFile.name;
+            dropTitle.innerText = '已选择图片，可调整参数后开始转换';
+            dropSubtitle.innerText = `当前文件：${selectedFile.name}`;
+            dropZone.classList.add('ready');
+            statusMsg.innerText = isReady ? '📦 文件已就绪，等待转换' : '正在初始化引擎...';
+            statusMsg.style.color = isReady ? '#94a3b8' : '#94a3b8';
+        } else {
+            nameLabel.innerText = '未选择文件';
+            dropTitle.innerText = '点击或拖拽图片到此处';
+            dropSubtitle.innerText = '先选择参数，再点击“开始转换”';
+            dropZone.classList.remove('ready');
+            statusMsg.innerText = isReady ? '✅ 引擎已就绪' : '正在初始化引擎...';
+            statusMsg.style.color = isReady ? '#10b981' : '#94a3b8';
+        }
+
+        updateConvertState();
+    }
+
+    async function init() {
+        try {
+            const wasmUrl = new URL('./magick.wasm', import.meta.url).href;
+            console.log('import.meta.url =', import.meta.url);
+            console.log('正在尝试加载 WASM 资源:', wasmUrl);
+
+            const resp = await fetch(wasmUrl);
+            console.log('WASM status:', resp.status, resp.statusText);
+            console.log('WASM content-type:', resp.headers.get('content-type'));
+            console.log('WASM content-length:', resp.headers.get('content-length'));
+
+            if (!resp.ok) {
+                throw new Error(`WASM 下载失败: ${resp.status} ${resp.statusText}`);
+            }
+
+            const buffer = await resp.arrayBuffer();
+            console.log('WASM 字节数:', buffer.byteLength);
+
+            if (!buffer.byteLength) {
+                throw new Error('WASM 文件为空');
+            }
+
+            await initializeImageMagick(new Uint8Array(buffer));
+
+            isReady = true;
+            statusMsg.innerText = selectedFile ? '📦 文件已就绪，等待转换' : '✅ 引擎已就绪';
+            statusMsg.style.color = '#10b981';
+            updateConvertState();
+        } catch (err) {
+            statusMsg.innerText = '❌ 初始化失败: ' + err.message;
+            statusMsg.style.color = '#ef4444';
+            console.error('详细错误堆栈:', err);
+        }
+    }
+
+    async function process() {
+        if (!selectedFile || !isReady) return;
+
+        nameLabel.innerText = selectedFile.name;
+        statusMsg.innerText = '正在根据当前参数转换图片...';
+        statusMsg.style.color = '#94a3b8';
+        downloadBtn.style.display = 'none';
+        preview.style.display = 'none';
+        resultInfo.innerText = '';
+        processedBlob = null;
+
+        try {
+            const scalePercent = clamp(scaleInput.value, 1, 1000, 100);
+            const quality = clamp(qualityInput.value, 1, 100, 85);
+            const { format, mime, ext } = getFormatInfo();
+
+            const arrayBuffer = await selectedFile.arrayBuffer();
+            const data = new Uint8Array(arrayBuffer);
+
+            ImageMagick.read(data, (image) => {
+                const originalWidth = image.width;
+                const originalHeight = image.height;
+
+                if (scalePercent !== 100) {
+                    const newWidth = Math.max(1, Math.round(originalWidth * scalePercent / 100));
+                    const newHeight = Math.max(1, Math.round(originalHeight * scalePercent / 100));
+                    image.resize(newWidth, newHeight);
+                }
+
+                if (ext === 'jpg' || ext === 'webp') {
+                    image.quality = quality;
+                }
+
+                image.write(format, (outputData) => {
+                    processedBlob = new Blob([outputData], { type: mime });
+                    processedExt = ext;
+
+                    const url = URL.createObjectURL(processedBlob);
+                    preview.src = url;
+                    preview.style.display = 'block';
+                    downloadBtn.style.display = 'inline-block';
+
+                    statusMsg.innerText = '✅ 转换完成';
+                    statusMsg.style.color = '#10b981';
+
+                    resultInfo.innerText =
+                        `原图: ${originalWidth}×${originalHeight} ｜ 输出: ${image.width}×${image.height} ｜ 格式: ${ext.toUpperCase()}` +
+                        ((ext === 'jpg' || ext === 'webp') ? ` ｜ 质量: ${quality}` : '') +
+                        ` ｜ 缩放: ${scalePercent}% ｜ 文件大小: ${formatBytes(processedBlob.size)}`;
+                });
+            });
+        } catch (err) {
+            statusMsg.innerText = '❌ 转换出错: ' + err.message;
+            statusMsg.style.color = '#ef4444';
+            console.error(err);
+        }
+    }
+
+    downloadBtn.onclick = () => {
+        if (!processedBlob) return;
+        const baseName = nameLabel.innerText.replace(/\.[^.]+$/, '') || 'output';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(processedBlob);
+        a.download = `${baseName}.${processedExt}`;
+        a.click();
+    };
+
+    convertBtn.onclick = () => process();
+    dropZone.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => setSelectedFile(e.target.files[0]);
+
+    formatSelect.onchange = () => {
+        updateQualityState();
+    };
+
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) {
+            setSelectedFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    updateQualityState();
+    updateConvertState();
+    init();
+</script>
+
+</body>
+</html>
