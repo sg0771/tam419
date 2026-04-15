@@ -2,135 +2,189 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>MediaInfo 解析与导出工具</title>
+    <title>MediaInfo 本地工作站</title>
     <style>
-        :root { --accent: #3b82f6; --bg: #0f172a; --card: #1e293b; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #f1f5f9; padding: 20px; line-height: 1.6; }
-        .card { max-width: 900px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 12px; border: 1px solid #334151; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        :root { --accent: #3b82f6; --bg: #0f172a; --card: #1e293b; --success: #10b981; --border: #334151; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #f1f5f9; padding: 0; margin: 0; line-height: 1.6; }
         
-        /* 头部样式 */
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334151; padding-bottom: 15px; margin-bottom: 20px; }
-        #file-name-label { font-weight: 600; color: var(--accent); background: #1a2233; padding: 4px 12px; border-radius: 6px; font-size: 0.9rem; }
+        /* 导航栏 */
+        .navbar { background: #111827; padding: 12px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+        .nav-links { display: flex; gap: 20px; }
+        .nav-links a { color: #94a3b8; text-decoration: none; font-size: 0.85rem; transition: 0.2s; }
+        .nav-links a:hover { color: var(--accent); }
+
+        .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
+        .card { background: var(--card); padding: 30px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        
+        /* 配置面板 */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .config-panel { display: flex; align-items: center; gap: 12px; background: #111827; padding: 10px 18px; border-radius: 30px; border: 1px solid var(--border); }
+        
+        /* 开关切换器 */
+        .switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #475569; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider:before { transform: translateX(16px); }
+
+        #file-name-label { font-weight: 600; color: var(--accent); font-size: 0.85rem; background: #1a2233; padding: 6px 15px; border-radius: 20px; border: 1px solid var(--border); }
         
         /* 交互区 */
-        #drop-zone { border: 2px dashed #475569; border-radius: 10px; padding: 40px; text-align: center; background: #0f172a; cursor: pointer; transition: 0.3s; }
+        #drop-zone { border: 2px dashed #475569; border-radius: 12px; padding: 50px; text-align: center; background: #0f172a; cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
         #drop-zone:hover { border-color: var(--accent); background: #1a2233; }
         
-        /* 按钮样式 */
-        .btn-group { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
-        .btn-download { 
-            display: none; background: #10b981; color: white; border: none; padding: 10px 20px; 
-            border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; 
-        }
+        /* 按钮区 */
+        .controls { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; min-height: 40px; }
+        .btn-download { display: none; background: var(--success); color: white; border: none; padding: 10px 22px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
         .btn-download:hover { background: #059669; }
         
         /* 结果展示 */
-        #result { background: #000; color: #4ade80; padding: 20px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 13px; max-height: 500px; overflow: auto; border: 1px solid #334151; white-space: pre-wrap; }
-        .status { font-size: 0.85rem; color: #94a3b8; }
+        #result { background: #000; color: #4ade80; padding: 20px; border-radius: 8px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; max-height: 500px; overflow: auto; border: 1px solid var(--border); white-space: pre-wrap; }
+        .status-text { font-size: 0.85rem; color: #94a3b8; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <div class="header">
-        <h2 style="margin:0">MediaInfo 解析器</h2>
-        <span id="file-name-label">尚未选择文件</span>
+<div class="navbar">
+    <div style="font-weight: bold; color: var(--accent);">MediaInfo Workspace</div>
+    <div class="nav-links">
+        <a href="https://mediaarea.net" target="_blank">官方主页</a>
+        <a href="#" onclick="location.reload()">强制刷新</a>
     </div>
+</div>
 
-    <div id="status" class="status">⏳ 正在初始化引擎...</div>
-    
-    <div id="drop-zone">点击此处或将视频文件拖入</div>
-    <input type="file" id="file-input" style="display: none">
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <span id="file-name-label">未选择文件</span>
+            <div class="config-panel">
+                <span style="font-size: 0.75rem; color: #94a3b8; font-weight: bold;">FULL 模式</span>
+                <label class="switch">
+                    <input type="checkbox" id="full-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
 
-    <div class="btn-group">
-        <button id="download-btn" class="btn-download">下载解析结果 (TXT)</button>
-        <span id="load-msg" style="font-size: 0.8rem"></span>
+        <div id="drop-zone">
+            <div style="font-size: 1.1rem; font-weight: 500;">点击此处或拖拽视频文件</div>
+            <div id="status-msg" class="status-text" style="margin-top: 8px;">正在加载 WASM 引擎...</div>
+        </div>
+        
+        <input type="file" id="file-input" style="display: none">
+
+        <div class="controls">
+            <button id="download-btn" class="btn-download">💾 下载 TXT 结果</button>
+            <span id="info-msg" class="status-text"></span>
+        </div>
+
+        <div id="result">等待任务开始...</div>
     </div>
-
-    <div id="result">等待解析...</div>
 </div>
 
 <script src="./mediainfo.js"></script>
 
 <script>
-    const statusEl = document.getElementById('status');
+    const statusMsg = document.getElementById('status-msg');
     const resultEl = document.getElementById('result');
     const nameLabel = document.getElementById('file-name-label');
     const fileInput = document.getElementById('file-input');
     const dropZone = document.getElementById('drop-zone');
     const downloadBtn = document.getElementById('download-btn');
-    const loadMsg = document.getElementById('load-msg');
+    const fullToggle = document.getElementById('full-toggle');
+    const infoMsg = document.getElementById('info-msg');
 
     let mi = null;
     let lastResult = "";
+    let currentFile = null;
 
-    // 1. 初始化 (适配源码中的 MediaInfo.mediaInfoFactory)
-    async function init() {
+    // 1. 核心初始化函数 (适配源码逻辑)
+    async function initEngine() {
         try {
-            const factory = MediaInfo.mediaInfoFactory; //
-            if (typeof factory !== 'function') throw new Error("工厂函数未找到");
+            // 如果已有实例，必须先关闭，否则会导致 WASM 内存泄漏
+            if (mi) {
+                console.log("释放旧实例内存...");
+                mi.close();
+            }
 
+            const factory = MediaInfo.mediaInfoFactory;
+            
+            // 在实例化时通过 options 传入 full 配置
+            // 源码中构造函数会接收这个参数：this.options.full
             mi = await factory({
-                locateFile: (path) => path.endsWith('.wasm') ? './MediaInfoModule.wasm' : path //
+                locateFile: (path) => path.endsWith('.wasm') ? './MediaInfoModule.wasm' : path,
+                full: fullToggle.checked,
+                format: 'object'
             });
 
-            statusEl.innerText = "✅ 引擎就绪";
+            statusMsg.innerText = `✅ 引擎就绪 (${fullToggle.checked ? '深度解析已开启' : '标准模式'})`;
+            return true;
         } catch (err) {
-            statusEl.innerText = "❌ 初始化失败: " + err.message;
+            statusMsg.innerText = "❌ 引擎初始化失败: " + err.message;
+            return false;
         }
     }
 
-    // 2. 解析逻辑
+    // 2. 解析文件逻辑
     async function analyze(file) {
         if (!file || !mi) return;
+        currentFile = file;
 
-        // 更新 Label 显示文件名
         nameLabel.innerText = file.name;
-        resultEl.innerText = "正在分析数据...";
+        resultEl.innerText = "正在读取文件元数据...";
         downloadBtn.style.display = "none";
-        loadMsg.innerText = "";
+        infoMsg.innerText = "";
+
+        const startTime = performance.now();
 
         try {
-            // 调用源码中的 analyzeData
+            // 使用源码推荐的 analyzeData 方法
             const result = await mi.analyzeData(
-                () => file.size, //
+                () => file.size,
                 async (chunkSize, offset) => {
                     const buffer = await file.slice(offset, offset + chunkSize).arrayBuffer();
-                    return new Uint8Array(buffer); //
+                    return new Uint8Array(buffer);
                 }
             );
 
-            // 处理结果 (源码默认输出 object 格式)
+            // 处理结果显示
             lastResult = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
             resultEl.innerText = lastResult;
             
-            // 显示下载按钮
+            const duration = (performance.now() - startTime).toFixed(0);
             downloadBtn.style.display = "block";
-            loadMsg.innerText = "解析完成";
+            infoMsg.innerText = `解析耗时: ${duration}ms | 模式: ${fullToggle.checked ? 'Full' : 'Standard'}`;
         } catch (err) {
-            resultEl.innerText = "解析出错: " + err.message;
+            resultEl.innerText = "解析失败: " + err.message;
         }
     }
 
-    // 3. 下载功能实现
+    // 3. 监听 FULL 模式切换
+    fullToggle.onchange = async () => {
+        statusMsg.innerText = "🔄 正在切换模式并重置引擎...";
+        const success = await initEngine();
+        if (success && currentFile) {
+            analyze(currentFile); // 切换开关后自动重新解析当前文件
+        }
+    };
+
+    // 4. 下载 TXT 功能
     downloadBtn.onclick = () => {
         if (!lastResult) return;
-        
         const blob = new Blob([lastResult], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        
         a.href = url;
-        a.download = `${nameLabel.innerText}_mediainfo.txt`;
-        document.body.appendChild(a);
+        a.download = `${currentFile.name}_mediainfo.txt`;
         a.click();
-        
-        document.body.removeChild(a);
         URL.revokeObjectURL(url);
     };
 
+    // 初始化加载
+    window.onload = initEngine;
+
     // 交互绑定
-    window.onload = init;
     dropZone.onclick = () => fileInput.click();
     fileInput.onchange = (e) => analyze(e.target.files[0]);
     document.addEventListener('dragover', (e) => e.preventDefault());
