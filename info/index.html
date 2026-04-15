@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>MediaInfo 解析与导出工具</title>
+    <style>
+        :root { --accent: #3b82f6; --bg: #0f172a; --card: #1e293b; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #f1f5f9; padding: 20px; line-height: 1.6; }
+        .card { max-width: 900px; margin: 0 auto; background: var(--card); padding: 30px; border-radius: 12px; border: 1px solid #334151; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        
+        /* 头部样式 */
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334151; padding-bottom: 15px; margin-bottom: 20px; }
+        #file-name-label { font-weight: 600; color: var(--accent); background: #1a2233; padding: 4px 12px; border-radius: 6px; font-size: 0.9rem; }
+        
+        /* 交互区 */
+        #drop-zone { border: 2px dashed #475569; border-radius: 10px; padding: 40px; text-align: center; background: #0f172a; cursor: pointer; transition: 0.3s; }
+        #drop-zone:hover { border-color: var(--accent); background: #1a2233; }
+        
+        /* 按钮样式 */
+        .btn-group { margin: 20px 0; display: flex; gap: 10px; align-items: center; }
+        .btn-download { 
+            display: none; background: #10b981; color: white; border: none; padding: 10px 20px; 
+            border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; 
+        }
+        .btn-download:hover { background: #059669; }
+        
+        /* 结果展示 */
+        #result { background: #000; color: #4ade80; padding: 20px; border-radius: 8px; font-family: 'Consolas', monospace; font-size: 13px; max-height: 500px; overflow: auto; border: 1px solid #334151; white-space: pre-wrap; }
+        .status { font-size: 0.85rem; color: #94a3b8; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="header">
+        <h2 style="margin:0">MediaInfo 解析器</h2>
+        <span id="file-name-label">尚未选择文件</span>
+    </div>
+
+    <div id="status" class="status">⏳ 正在初始化引擎...</div>
+    
+    <div id="drop-zone">点击此处或将视频文件拖入</div>
+    <input type="file" id="file-input" style="display: none">
+
+    <div class="btn-group">
+        <button id="download-btn" class="btn-download">下载解析结果 (TXT)</button>
+        <span id="load-msg" style="font-size: 0.8rem"></span>
+    </div>
+
+    <div id="result">等待解析...</div>
+</div>
+
+<script src="./mediainfo.js"></script>
+
+<script>
+    const statusEl = document.getElementById('status');
+    const resultEl = document.getElementById('result');
+    const nameLabel = document.getElementById('file-name-label');
+    const fileInput = document.getElementById('file-input');
+    const dropZone = document.getElementById('drop-zone');
+    const downloadBtn = document.getElementById('download-btn');
+    const loadMsg = document.getElementById('load-msg');
+
+    let mi = null;
+    let lastResult = "";
+
+    // 1. 初始化 (适配源码中的 MediaInfo.mediaInfoFactory)
+    async function init() {
+        try {
+            const factory = MediaInfo.mediaInfoFactory; //
+            if (typeof factory !== 'function') throw new Error("工厂函数未找到");
+
+            mi = await factory({
+                locateFile: (path) => path.endsWith('.wasm') ? './MediaInfoModule.wasm' : path //
+            });
+
+            statusEl.innerText = "✅ 引擎就绪";
+        } catch (err) {
+            statusEl.innerText = "❌ 初始化失败: " + err.message;
+        }
+    }
+
+    // 2. 解析逻辑
+    async function analyze(file) {
+        if (!file || !mi) return;
+
+        // 更新 Label 显示文件名
+        nameLabel.innerText = file.name;
+        resultEl.innerText = "正在分析数据...";
+        downloadBtn.style.display = "none";
+        loadMsg.innerText = "";
+
+        try {
+            // 调用源码中的 analyzeData
+            const result = await mi.analyzeData(
+                () => file.size, //
+                async (chunkSize, offset) => {
+                    const buffer = await file.slice(offset, offset + chunkSize).arrayBuffer();
+                    return new Uint8Array(buffer); //
+                }
+            );
+
+            // 处理结果 (源码默认输出 object 格式)
+            lastResult = typeof result === 'object' ? JSON.stringify(result, null, 2) : result;
+            resultEl.innerText = lastResult;
+            
+            // 显示下载按钮
+            downloadBtn.style.display = "block";
+            loadMsg.innerText = "解析完成";
+        } catch (err) {
+            resultEl.innerText = "解析出错: " + err.message;
+        }
+    }
+
+    // 3. 下载功能实现
+    downloadBtn.onclick = () => {
+        if (!lastResult) return;
+        
+        const blob = new Blob([lastResult], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        
+        a.href = url;
+        a.download = `${nameLabel.innerText}_mediainfo.txt`;
+        document.body.appendChild(a);
+        a.click();
+        
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    // 交互绑定
+    window.onload = init;
+    dropZone.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => analyze(e.target.files[0]);
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) analyze(e.dataTransfer.files[0]);
+    });
+</script>
+
+</body>
+</html>
